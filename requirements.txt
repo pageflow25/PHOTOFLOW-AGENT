@@ -1,0 +1,5 @@
+requests>=2.32,<3
+Pillow>=10.3,<12
+pywin32>=306; sys_platform == "win32"
+python-dotenv>=1.0,<2
+urllib3>=2.0,<3
