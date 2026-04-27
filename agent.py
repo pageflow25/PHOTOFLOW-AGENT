@@ -223,8 +223,13 @@ def _run_loop(cfg: Config, *, dry_run: bool) -> int:
             log.debug("claim_empty", extra={"event": "claim_empty"})
         else:
             log.info("claim_success",
-                     extra={"event": "claim_success", "count": len(fotos),
-                            "ids": [f.id for f in fotos]})
+                     extra={
+                         "event": "claim_success",
+                         "count": len(fotos),
+                         "ids":   [f.id for f in fotos],
+                         # Mapa foto_id → lead_nome para o dashboard GUI
+                         "leads": {f.id: f.lead_nome or "" for f in fotos},
+                     })
             for foto in fotos:
                 if _stopping.is_set():
                     # Devolve as restantes

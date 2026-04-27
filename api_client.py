@@ -9,6 +9,7 @@ api_client.py — Wrapper HTTP da API do PhotoFlow.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -70,6 +71,19 @@ class ApiClient:
         })
         return s
 
+    @staticmethod
+    def _http_error_summary(response: requests.Response, max_len: int = 140) -> str:
+        """Compacta resposta HTTP para evitar logs gigantes (ex.: HTML de 404)."""
+        body = response.text or ""
+        # Remove tags HTML e compacta espaços/quebras
+        body = re.sub(r"<[^>]+>", " ", body)
+        body = " ".join(body.replace("\r", " ").replace("\n", " ").split())
+        if not body:
+            return f"HTTP {response.status_code}"
+        if len(body) > max_len:
+            body = body[: max_len - 1] + "…"
+        return f"HTTP {response.status_code} — {body}"
+
     # ------------------------------------------------------------------ #
     # Endpoints
     # ------------------------------------------------------------------ #
@@ -85,7 +99,7 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(f"claim_queue: erro de rede: {e}") from e
         if r.status_code != 200:
-            raise ApiError(f"claim_queue: HTTP {r.status_code} — {r.text[:300]}")
+            raise ApiError(f"claim_queue: {self._http_error_summary(r)}")
         try:
             data = r.json()
         except ValueError as e:
@@ -125,7 +139,7 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(f"download_image: erro de rede: {e}") from e
         if r.status_code != 200:
-            raise ApiError(f"download_image: HTTP {r.status_code} — {r.text[:300]}")
+            raise ApiError(f"download_image: {self._http_error_summary(r)}")
         if not r.content:
             raise ApiError("download_image: corpo vazio")
         return r.content
@@ -139,8 +153,21 @@ class ApiClient:
             r = self._session.post(url, json=body, timeout=self.timeout)
         except requests.RequestException as e:
             raise ApiError(f"confirm: erro de rede: {e}") from e
+        if r.status_code == 404:
+            # Compatibilidade com ambientes onde a rota de confirmação ainda
+            # não foi publicada. Evita sinalizar falha quando a foto já foi
+            # impressa localmente.
+            log.warning(
+                "confirm_endpoint_missing",
+                extra={
+                    "event": "confirm_endpoint_missing",
+                    "fotoId": foto_id,
+                    "success": bool(success),
+                },
+            )
+            return
         if r.status_code >= 400:
-            raise ApiError(f"confirm: HTTP {r.status_code} — {r.text[:300]}")
+            raise ApiError(f"confirm: {self._http_error_summary(r)}")
 
     def release(self, foto_ids: List[str]) -> None:
         if not foto_ids:
@@ -151,7 +178,7 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(f"release: erro de rede: {e}") from e
         if r.status_code >= 400:
-            raise ApiError(f"release: HTTP {r.status_code} — {r.text[:300]}")
+            raise ApiError(f"release: {self._http_error_summary(r)}")
 
     def heartbeat(self, agent_id: str) -> None:
         url = f"{self.base_url}/api/print-queue/heartbeat"
@@ -159,5 +186,9 @@ class ApiClient:
             r = self._session.post(url, json={"agentId": agent_id}, timeout=self.timeout)
         except requests.RequestException as e:
             raise ApiError(f"heartbeat: erro de rede: {e}") from e
+        if r.status_code == 404:
+            # Ambientes antigos podem não ter a rota de heartbeat publicada ainda.
+            log.info("heartbeat_endpoint_missing", extra={"event": "heartbeat_endpoint_missing"})
+            return
         if r.status_code >= 400:
-            raise ApiError(f"heartbeat: HTTP {r.status_code} — {r.text[:300]}")
+            raise ApiError(f"heartbeat: {self._http_error_summary(r)}")

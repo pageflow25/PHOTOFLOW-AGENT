@@ -3,10 +3,23 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
+
+
+def _find_env_path() -> Path:
+    """
+    Localiza o .env correto.
+
+    - Quando empacotado pelo PyInstaller (frozen), o .env fica ao lado do .exe.
+    - Em desenvolvimento, fica ao lado deste arquivo.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).parent / ".env"
+    return Path(__file__).parent / ".env"
 
 
 @dataclass(frozen=True)
@@ -27,7 +40,7 @@ class Config:
 
     @staticmethod
     def load() -> "Config":
-        load_dotenv()
+        load_dotenv(dotenv_path=_find_env_path(), override=True)
 
         app_url = os.getenv("APP_URL", "").strip().rstrip("/")
         api_key = os.getenv("API_KEY", "").strip()
